@@ -1,0 +1,4 @@
+# Bancos são gerados por: python -m db.etl
+*.db
+__pycache__/
+.venv/
