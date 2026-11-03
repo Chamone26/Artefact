@@ -15,7 +15,7 @@ import pandas as pd
 from db.text import normalize_text
 
 DB_DIR = Path(__file__).parent
-DATA_DIR = DB_DIR / "data"
+DATA_DIR = DB_DIR / "raw_data"
 SCHEMA_PATH = DB_DIR / "schema.sql"
 DB_PATH = DB_DIR / "emporio.db"
 CSV_NAME = "desafio_tecnico_ai_eng - {table}.csv"
