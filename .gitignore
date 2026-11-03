@@ -2,3 +2,6 @@
 *.db
 __pycache__/
 .venv/
+# Guarda a chave de API; o modelo versionado é o .env.example
+.env
+agent.log
