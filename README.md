@@ -1,4 +1,44 @@
-# Artefact
+# Empório da Música: agente de atendimento
+
+Agente de mensagens de texto que atende clientes de uma loja de instrumentos, consultando catálogo, promoções e pedidos.
+
+## Como rodar
+
+Testado com Python 3.13. Crie o ambiente, instale as dependências e gere o banco:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+python -m db.etl
+```
+
+Preencha `ANTHROPIC_API_KEY` no `.env`. No Linux ou macOS, use `source .venv/bin/activate` e `cp`. Depois, suba a API:
+
+```bash
+python main.py
+```
+
+Em outro terminal, com o ambiente ativado, escolha um dos clientes:
+
+```bash
+# CLI
+python -m agent.cli
+
+# Interface web (cliente independente)
+streamlit run streamlit_app.py
+```
+
+CLI e Streamlit são processos independentes; cada um mantém seu próprio agente e histórico de conversa. Ambos acessam a mesma API de dados, que deve continuar rodando em seu próprio terminal.
+
+Testes, sem chave de API:
+
+```bash
+python -m unittest db.test_etl api.test_api agent.test_tools agent.test_graph
+```
+
+O funcionamento interno está em [docs/agente.md](docs/agente.md).
 
 ## Uso de Agentes de IA
 
@@ -17,7 +57,7 @@ A documentação interativa fica em `http://127.0.0.1:8000/docs`. Para testar:
 python -m unittest db.test_etl api.test_api
 ```
 
-| Rota | Função | Tool futura |
+| Rota | Função | Tool |
 |---|---|---|
 | `GET /products` | Busca por texto e filtra por categoria, marca, preço, material, eletrônica, disponibilidade e promoção | `search_products` |
 | `GET /promotions` | Lista as promoções vigentes | `list_promotions` |
@@ -26,7 +66,7 @@ python -m unittest db.test_etl api.test_api
 | `POST /orders/search` | Lista os pedidos de um cliente com telefone e e-mail | `list_customer_orders` |
 
 - **Tools específicas em vez de SQL gerado pelo LLM:** o agente só faz consultas previstas, e os parâmetros são validados pelo Pydantic e passados ao banco separados da consulta.
-- **Camadas:** `api/store.py` contém as consultas e `api/main.py` só as expõe por HTTP. As tools podem chamar `Store` diretamente, sem depender do servidor.
+- **Camadas:** `api/store.py` contém as consultas e `api/main.py` as expõe por HTTP. O agente acessa os dados só pela API, em outro processo.
 - **Somente leitura:** a conexão abre o banco com `mode=ro`.
 - **Busca:** ignora acentos e hífens, e procura cada termo como substring do nome, marca, categoria, descrição, cor ou material. Todos os termos precisam aparecer; não há correção de erros, stemming, stopwords ou ordenação por relevância. Resultados são ordenados por disponibilidade, preço e ID.
 - **Disponibilidade:** produtos esgotados, descontinuados ou "em breve" aparecem por padrão, identificados no campo `availability`, para o agente poder explicar a situação. `available_only=true` os exclui.
@@ -37,30 +77,30 @@ python -m unittest db.test_etl api.test_api
 ## Decisões técnicas obrigatórias
 
 ### Framework(s) / abordagem do agente
-    RAG, function calling, ReAct, agente de SQL, híbrido, etc. 
+
+Function calling orquestrado com **LangGraph** (`StateGraph`, `ToolNode` e `tools_condition`).
+
+- **Por que function calling:** o agente precisa decidir quando consultar cada fonte, e tools específicas limitam o que ele pode fazer. O acesso a pedidos, por exemplo, é verificado em código.
+- **Por que não um agente de SQL:** gerar SQL expõe a base inteira, inclusive dados de outros clientes.
+- **Por que LangGraph:** para o fluxo atual, um loop próprio bastaria. O framework foi escolhido para demonstrar domínio dele e porque deixa o fluxo explícito, com memória por sessão e espaço para evoluir.
+- **Por que `StateGraph`, e não o `create_agent` do LangChain:** os nós e as transições ficam visíveis no código, em vez de escondidos em uma abstração.
+- **Por que API separada:** as próximas tools de RAG terão índice e embeddings próprios, e o agente fica limitado às rotas, sem acesso direto ao banco. O custo é ter dois processos para subir.
 
 ### Modelo e Provedor 
-    Você pode escolher modelos pagos ou grátis, locais ou via API.  
+
+**Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco.
 
 ### Interface de interação 
-    CLI, notebook, API, ou UI simples — o foco é o agente funcionando corretamente. 
+
+**CLI e Streamlit** como dois clientes independentes do agente. Cada interface chama `Agent.respond` sem depender da outra; ambas acessam a API de dados separadamente.
 
 ### Persistência do histórico de conversa 
-    Implemente se fizer sentido para a experiência do usuário. 
+
+**Em memória, por sessão**, com o `InMemorySaver` do LangGraph. Faz sentido porque perguntas como "e tem em estoque?" dependem da mensagem anterior. O histórico se perde ao reiniciar, o que é aceitável em um protótipo.
 
 ### Tratamento dos dados
 
-Os CSVs são tratados com pandas e viram um banco SQLite somente leitura. O banco não vai para o repositório. Para gerá-lo e testá-lo, a partir da raiz (testado com Python 3.13):
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python -m db.etl
-python -m unittest db.test_etl
-```
-
-No Linux ou macOS, ative o ambiente com `source .venv/bin/activate`.
+Os CSVs são tratados com pandas e viram um banco SQLite somente leitura. O banco não vai para o repositório: é gerado por `python -m db.etl`.
 
 - **Por que pandas:** as transformações ficam concisas e a leitura e a carga usam funções prontas (`read_csv` e `to_sql`). As restrições continuam no `schema.sql`, porque `to_sql` só insere nas tabelas já criadas.
 - **Por que SQLite:** preço, estoque e pedido pedem filtros exatos. O banco é um único arquivo e não exige um servidor.
