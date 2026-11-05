@@ -1,6 +1,6 @@
 # Contexto do projeto
 
-Resumo para continuar o trabalho em outra máquina ou sessão. Situação em 2026-11-04.
+Resumo para continuar o trabalho em outra máquina ou sessão.
 
 ## O desafio
 
@@ -26,6 +26,7 @@ Ambiguidades devem ser resolvidas com uma interpretação razoável, documentada
 | Tema | Decisão | Motivo |
 |---|---|---|
 | Abordagem | Function calling com RAG como tool | O agente decide o que consultar |
+| Retrieval | BM25 por seção, com palavras-chave | Melhor resultado na comparação, sem download de modelo |
 | Framework | LangGraph com `StateGraph` | Escolha do desenvolvedor para demonstrar domínio, mesmo que um loop próprio bastasse |
 | Dados | Servidor HTTP separado do agente | Escolha do desenvolvedor; as tools de RAG também ficarão no servidor |
 | Modelo | Claude Haiku 5.5 | Escolha do desenvolvedor. Limitação conhecida: às vezes escreve "No" no lugar de "Não" |
@@ -39,45 +40,18 @@ O funcionamento interno está em [agente.md](agente.md).
 
 ## Estado atual
 
-- **Pronto:** ETL e SQLite, API com 5 rotas, grafo do agente, 5 tools de dados, CLI, Streamlit e 75 testes.
-- **Parcial:** 20 cenários com o modelo real (1 falhou na última rodada completa) e README.
-- **Falta:** RAG e `search_policies`, `escalate_to_human`, conversas de exemplo, seção "Uso de Agentes de IA", que o desenvolvedor pretende escrever, e diagramas finais.
+- **Pronto:** ETL e SQLite, API com 6 rotas, grafo do agente, 6 tools (dados e `search_policies`), ingestão e busca nas políticas, CLI, Streamlit e testes sem LLM.
+- **Parcial:** README e cenários com o modelo real, que ainda não rodaram com o RAG por falta de uma chave de API válida.
+- **Falta:** `escalate_to_human`, conversas de exemplo, seção "Uso de Agentes de IA", que o desenvolvedor pretende escrever, e diagramas finais.
 
 Diagramas: `arq_revisada.excalidraw` traz a arquitetura e `arq_as_is_to_be.excalidraw`, a comparação do estado atual com a meta do MVP.
 
-## Plano proposto, ainda não aprovado
+## Retrieval
 
-Só implementar depois da aprovação do desenvolvedor. Ele pediu que correções e alterações sejam propostas antes de aplicadas.
-
-0. **Separar responsabilidades:** renomear `call_api` para `translate_api_errors` e mover os esquemas para `contracts/`, para `agent/tools.py` não importar `api`. As tools já usam HTTP; o acoplamento é só de código.
-1. **Ingestão (`rag/ingest.py`):** extrair o PDF com PyMuPDF e dividir por seção, deixando fora do índice as seções internas 7.1, 7.2, 7.3 e 10. O índice é gerado, fora do repositório.
-2. **Busca (`rag/search.py`):** BM25 por seção, com palavras-chave para sinônimos e até 3 resultados. Meta: 27 de 29 perguntas entre os 3 primeiros resultados, validada com 10 perguntas novas.
-3. **Rota e tool:** `POST /policies/search` e `search_policies`.
-4. **Prompt:** remover a seção temporária "Políticas da loja" e responder sobre políticas só com base na tool.
-5. **Contradições do manual:** documentar as interpretações no README.
-6. **Cenários:** cobrir endereço, horários, devolução, defeito e PIX em promoção.
-7. **Documentação:** atualizar README, `agente.md` e diagramas.
-
-### Medição que embasa a busca
-
-Teste com o manual dividido em 28 seções e 29 perguntas escritas depois de lê-lo:
-
-| Busca | Certa em 1º | Certa entre as 3 primeiras |
-|---|---|---|
-| BM25 | 21 | 25 |
-| Embeddings multilíngues | 15 | 21 |
-| Híbrido | 18 | 22 |
-
-Só um modelo de embeddings foi testado, e o script não está no repositório.
-
-### Interpretações propostas para o manual
-
-- **Telefone:** (67) 3321-4500 para WhatsApp (seção 7) e (67) 3341-4444 para telefone (seção 1.2).
-- **E-mail:** `contato@emporiodamusica.com.br`, a forma da capa, sem acento.
-- **Parcela mínima:** vale a seção 3.1, mais detalhada que a tabela.
+Decisões e medições estão em [agente.md](agente.md). Em resumo: BM25 acertou 25 de 29 perguntas entre os 3 primeiros resultados, contra 21 dos embeddings e 22 do híbrido. Com palavras-chave, foram 7 de 10 em perguntas novas, que não devem guiar novos ajustes.
 
 ## Pendências para rodar em outro ambiente
 
-- **PDF de políticas:** `políticas_da_loja.pdf` não está no repositório, por decisão do desenvolvedor. O RAG depende dele, que deverá ser enviado antes da etapa 1.
+- **PDF de políticas:** fica em `rag/raw_data/politicas_da_loja.pdf`, e a ingestão depende dele.
 - **Chave de API:** o `.env` não é versionado. Crie-o a partir do `.env.example` ou defina `ANTHROPIC_API_KEY` no ambiente.
-- **Banco:** gere com `python -m db.etl`, depois de instalar o `requirements.txt`.
+- **Banco e índice:** gere com `python -m db.etl` e `python -m rag.ingest`, depois de instalar o `requirements.txt`.

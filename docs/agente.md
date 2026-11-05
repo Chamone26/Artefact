@@ -9,12 +9,14 @@ São dois processos. O agente decide o que fazer, e a API é a única parte que 
 ```text
 Terminal 1: python main.py                Terminal 2: python -m agent.cli
 ┌──────────────────────────┐              ┌───────────────────────────────────┐
-│ API de dados (FastAPI)   │              │ CLI                               │
+│ API (FastAPI)            │              │ CLI ou Streamlit                  │
 │ api/main.py              │              │  └─ Agent.respond (agent/graph.py)│
-│  └─ Store (api/store.py) │◄─── HTTP ────│      ├─ grafo LangGraph ──► Claude│
-│      └─ SQLite           │              │      └─ tools (agent/tools.py)    │
+│  ├─ Store ──► SQLite     │◄─── HTTP ────│      ├─ grafo LangGraph ──► Claude│
+│  └─ PolicyIndex ──► JSON │              │      └─ tools (agent/tools.py)    │
 └──────────────────────────┘              └───────────────────────────────────┘
 ```
+
+Agente e API não importam código um do outro: o contrato entre eles fica em `contracts/schemas.py`. Um teste garante que `agent/tools.py` não carrega `api`, `db`, `rag` nem o pandas.
 
 ## Como rodar
 
@@ -24,6 +26,7 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 python -m db.etl
+python -m rag.ingest
 python main.py
 ```
 
@@ -35,7 +38,7 @@ python -m agent.cli --debug
 
 | Comando | Para que serve | Precisa de chave? |
 |---|---|---|
-| `python -m unittest db.test_etl api.test_api agent.test_tools agent.test_graph` | Todos os testes | Não |
+| `python -m unittest db.test_etl api.test_api agent.test_tools agent.test_graph rag.test_rag` | Todos os testes | Não |
 | `python -m agent.cli` | Conversar com o agente | Sim |
 | `python -m agent.cli --debug` | Conversar vendo as tools chamadas | Sim |
 | `streamlit run streamlit_app.py` | Conversar pela interface web | Sim |
@@ -54,6 +57,10 @@ python -m agent.cli --debug
 | `streamlit_app.py` | Interface web com histórico por sessão do navegador | Mudar a experiência web |
 | `agent/scenarios.py` | Conversas de referência com o modelo real | Cobrir um novo comportamento |
 | `agent/test_*.py` | Testes sem rede e sem chave | Testar o fluxo |
+| `contracts/schemas.py` | Entradas e saídas trocadas entre agente e API | Mudar o contrato de uma rota ou tool |
+| `db/utils.py` | `normalize_text` e `DB_PATH`, sem depender do pandas | Mudar a normalização de texto |
+| `rag/ingest.py` | Transforma o PDF em seções e define as palavras-chave | Mudar o corte das seções ou os sinônimos |
+| `rag/search.py` | Busca BM25 nas seções | Mudar a recuperação |
 
 ## O caminho de uma mensagem
 
@@ -122,6 +129,25 @@ A busca da API compara substrings, então `category="violão"` não encontra "Vi
 ### Por que a busca por texto traz um aviso
 Com `query="ukulele iniciante"`, a busca só devolve produtos com as duas palavras no texto. O modelo recebeu um resultado e afirmou que era o único ukulele disponível, quando havia 14. Por isso, `search_products` acrescenta o campo `note` sempre que há `query`, e a descrição da tool orienta a recomendar usando filtros.
 
+### Por que BM25, e não embeddings
+Comparamos as opções com o manual dividido em 28 seções e 29 perguntas:
+
+| Busca | Certa em 1º | Certa entre as 3 primeiras | Instalação |
+|---|---|---|---|
+| BM25 | 21 | 25 | Sem modelo |
+| Embeddings multilíngues | 15 | 21 | Cerca de 300 MB em pacotes, mais 241 MB de modelo |
+| Híbrido (RRF) | 18 | 22 | Igual à dos embeddings |
+
+Só um modelo de embeddings foi testado, e as perguntas foram escritas depois de ler o manual. O resultado vale para este documento pequeno, não como regra geral.
+
+Depois, adicionamos palavras-chave às seções, porque a busca lexical não entende que "rastreio" e "rastreamento" são o mesmo assunto. Com isso, as 29 perguntas chegaram a 29 entre as 3 primeiras, mas esse número é otimista, porque as palavras foram escolhidas olhando essas perguntas. **A medida real são as 10 perguntas novas de `HELD_OUT_QUESTIONS`: 7 de 10.** Elas não devem guiar novos ajustes, senão deixam de medir. Como a tool é chamada pelo LLM, ele também pode refazer a busca com outras palavras.
+
+### Por que as seções 7.1, 7.2, 7.3 e 10 ficam fora do índice
+São instruções para a equipe, como tom de voz e fluxo de atendimento, e não informações para o cliente. O que importa delas está no system prompt.
+
+### Por que a consulta de políticas usa POST
+A consulta pode trazer texto escrito pelo cliente, que não deve aparecer em URLs e logs de acesso, como telefone e e-mail nos pedidos.
+
 ### Por que o system prompt não fica no estado
 Ele é adicionado a cada chamada em `agent_node`. Assim, o histórico guarda só a conversa, e mudar o prompt não exige recriar sessões.
 
@@ -131,22 +157,22 @@ Ele é adicionado a cada chamada em `agent_node`. Assim, o histórico guarda só
 |---|---|---|
 | Argumento inválido do LLM | `ToolNode` | Volta ao LLM como erro, para ele corrigir |
 | Pedido inexistente ou telefone errado | API e tool | `"found": false`, com a mesma resposta nos dois casos |
-| Busca sem resultado | `search_products` | Resultado vazio com `hint` sobre como buscar melhor |
-| API fora do ar durante a conversa | `call_api` | O LLM é instruído a avisar o cliente, sem inventar dados |
+| Busca sem resultado | `search_products` e `search_policies` | Resultado vazio com `hint` sobre como buscar melhor |
+| API fora do ar durante a conversa | `translate_api_errors` | O LLM é instruído a avisar o cliente, sem inventar dados |
 | API fora do ar ao iniciar | `cli.py` | A CLI encerra e explica como subir a API |
 | Chave inválida, limite ou rede do modelo | `Agent.respond` | Mensagem amigável, com o detalhe em `agent.log` |
 | Muitas rodadas de tools | `agent_node` | Resposta normal pedindo para reformular |
 
 ## Como adicionar uma tool
 
-O próximo caso é `search_policies`, do RAG:
+`search_policies` é um bom exemplo a seguir:
 
-1. **API:** criar a rota, como `POST /policies/search`, e o teste em `api/test_api.py`.
-2. **Cliente:** adicionar o método em `StoreApiClient`.
-3. **Tool:** criar a função e o `StructuredTool` em `build_tools`, usando `call_api`. A descrição deve dizer **quando** usar a tool: é ela que orienta a decisão do LLM.
-4. **Prompt:** remover a seção temporária "Políticas da loja" e dizer para consultar a tool.
-5. **Testes:** cobrir a tool em `agent/test_tools.py`.
-6. **Cenários:** atualizar `agent/scenarios.py`. O cenário "Política ainda indisponível" passa a esperar o endereço.
+1. **Contrato:** definir entradas e saídas em `contracts/schemas.py`.
+2. **API:** criar a rota e o teste em `api/test_api.py`.
+3. **Cliente:** adicionar o método em `StoreApiClient`.
+4. **Tool:** criar a função e o `StructuredTool` em `build_tools`, usando `translate_api_errors`. A descrição deve dizer **quando** usar a tool: é ela que orienta a decisão do LLM.
+5. **Prompt:** dizer quando consultar a tool, se a descrição não bastar.
+6. **Testes e cenários:** cobrir a tool em `agent/test_graph.py` e em `agent/scenarios.py`.
 
 O grafo não muda: o `ToolNode` recebe a tool nova automaticamente.
 
@@ -166,7 +192,8 @@ Para outro modelo Claude, basta `AGENT_MODEL` no `.env`. Para outro provedor, su
 - **Qualidade das respostas:** os cenários conferem trechos de texto, não o sentido. Leia as respostas ao alterar o prompt ou o modelo.
 - **Idioma no Haiku 5.5:** ele às vezes escreve "No" no lugar de "Não" ("No, o Yamaha F310 não está em promoção"). Reforçar o prompt e aumentar o esforço não resolveram em 24 respostas de cada variante; o Sonnet 5.5 não apresentou o problema em 12. Os cenários acusam esse erro.
 - **API:** não tem autenticação e deve rodar só localmente.
-- **Políticas:** o agente ainda não as conhece, salvo a regra do PIX e as de atendimento no prompt.
+- **Busca nas políticas:** é lexical e não entende sinônimos fora das palavras-chave. Nas perguntas novas, falhou em "CEP", "mudei de ideia" e "Dourados". Tabelas do PDF viram uma célula por linha, sem marcação de colunas.
+- **Índice em memória:** a API o carrega uma vez. Depois de rodar `python -m rag.ingest`, reinicie a API.
 - **Data:** é fixa (`AGENT_TODAY`) e não inclui horário, então o agente não sabe se a loja está aberta.
 - **Busca:** é por substring, sem sinônimos. "Kala" também traz "Kalani", e "aço" pode encontrar outras palavras nas descrições. As descrições das tools orientam o uso dos filtros para reduzir isso.
 
@@ -177,5 +204,6 @@ Para outro modelo Claude, basta `AGENT_MODEL` no `.env`. Para outro provedor, su
 | `ANTHROPIC_API_KEY não definida` | `.env` ausente ou vazio | Copie `.env.example` e preencha |
 | `A API de dados precisa estar no ar` | Servidor parado | Rode `python main.py` |
 | Erro 500 na API com `Banco não encontrado` | Banco não gerado | Rode `python -m db.etl` |
+| Erro 500 na API com `Índice não encontrado` | Índice não gerado | Rode `python -m rag.ingest` e reinicie a API |
 | "Estou com uma instabilidade" na conversa | Falha ao chamar o modelo | Veja o erro em `agent.log`, ou no terminal com `--debug`; 401 indica chave inválida |
 | O agente não usa uma tool | Descrição pouco clara | Ajuste a descrição em `agent/tools.py` e rode os cenários |
