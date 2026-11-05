@@ -41,6 +41,23 @@ python -m unittest db.test_etl api.test_api agent.test_tools agent.test_graph ra
 
 O funcionamento interno está em [docs/agente.md](docs/agente.md).
 
+## Arquitetura
+
+```mermaid
+graph LR
+    C[CLI ou Streamlit] --> R[Runtime: LangGraph]
+    R <--> M[Claude Haiku 5.5]
+    R <--> S[Memória por sessão]
+    R -- tools via HTTP --> A[API FastAPI]
+    A --> D[(SQLite)]
+    A --> K[Índice BM25 das políticas]
+    A --> E[Encaminhamentos em JSONL]
+    CSV[CSVs] -. ETL com pandas .-> D
+    PDF[Manual em PDF] -. ingestão .-> K
+```
+
+O agente roda dentro da CLI ou do Streamlit, e a API roda em outro processo. Só o modelo fica fora da máquina. O estado atual e as evoluções possíveis estão em `arq_as_is_to_be.excalidraw`, e a arquitetura original, em `arq_revisada.excalidraw`.
+
 ## Exemplos de conversa
 
 Gravadas de execuções reais, sem edição do texto, por `python -m examples.generate`. As respostas variam a cada execução, e a conversa 5 foi regravada depois de um deslize de idioma do modelo, descrito em "Modelo e Provedor":
@@ -52,6 +69,24 @@ Gravadas de execuções reais, sem edição do texto, por `python -m examples.ge
 - [Fora do escopo, acessório e reclamação](examples/05_fora_do_escopo_e_reclamacao.md)
 
 ## Uso de Agentes de IA
+
+Usei o **Claude Code**, no app desktop, com o Claude Opus 5.5, como par de desenvolvimento. O assistente escreveu a maior parte do código, e eu conduzi as decisões e revisei o resultado.
+
+**Como trabalhei:**
+
+1. **Arquitetura:** desenhei duas opções no Excalidraw e pedi uma revisão. Ela apontou erros, como a falta de uma camada de dados, e levou à escolha do RAG como tool.
+2. **Plano antes do código:** para as partes maiores, pedi um plano com o que mudaria e por quê, e só depois autorizei a implementação.
+3. **Medição antes de decidir:** a escolha do BM25 veio de uma comparação com embeddings, e não de uma preferência.
+4. **Validação:** os testes não chamam o LLM. O comportamento foi verificado em cenários com o modelo real, e a leitura das respostas achou erros que as checagens automáticas não pegavam, como afirmar que havia um único ukulele disponível, quando havia 14.
+
+**Onde decidi diferente da sugestão do assistente:**
+
+- **pandas no ETL,** em vez de só a biblioteca padrão.
+- **LangGraph,** para demonstrar domínio, embora a sugestão fosse um loop próprio.
+- **Servidor HTTP separado para os dados,** em vez de as tools chamarem as consultas diretamente.
+- **Claude Haiku 5.5,** priorizando o custo, embora a sugestão tenha sido o Sonnet 5.5.
+
+**Alterações que fiz por conta própria:** simplifiquei a busca de produtos para comparação por substring, pedi a remoção do campo `brand`, renomeei os CSVs e adicionei a interface Streamlit e a inicialização por `main.py`.
 
 ## API de dados
 
@@ -118,6 +153,14 @@ O manual se contradiz em alguns pontos. As interpretações adotadas foram:
 - **E-mail:** `contato@emporiodamusica.com.br`, a forma da capa, sem acento.
 - **Parcela mínima:** valem as regras por faixa de parcelas (seção 3.1), mais detalhadas que a tabela geral.
 
+### Estratégia de prompt
+
+O system prompt, em `agent/prompt.py`, define persona, regras de dados, promoções, pedidos, encaminhamento e escopo a partir do manual da loja. As descrições das tools dizem quando usar cada uma, porque é nelas que o modelo se baseia para decidir.
+
+- **O prompt orienta, o código garante:** autorização de pedidos, limite de passos e validação de entradas ficam em código, porque o prompt não é uma barreira de segurança.
+- **Conteúdo das tools é dado, não instrução:** o prompt manda ignorar comandos em resultados e tratar mensagens que se dizem do sistema como texto do cliente.
+- **Regras vindas de erros reais:** várias instruções, como não citar instrumentos sem consultar e não arredondar preços, surgiram da leitura de respostas do modelo real.
+
 ### Modelo e Provedor 
 
 **Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco. Limitação conhecida: ele às vezes comete deslizes de idioma, como "No" no lugar de "Não" ("No, não temos saxofone") e, mais raramente, uma expressão em inglês ("that's chato"). Reforçar o prompt e aumentar o esforço não resolveram, e o Sonnet 5.5 não apresentou o problema em uma amostra menor. O custo menor foi priorizado neste protótipo.
@@ -152,3 +195,27 @@ Os CSVs são tratados com pandas e viram um banco SQLite somente leitura. O banc
 - O produto 136 está descontinuado, mas tem estoque. O status prevalece e ele não é oferecido.
 - Três categorias não têm produtos, embora o manual cite esses instrumentos.
 - Os pedidos vão só até 2026-03-22 e não há data real de entrega. Promoções não têm período, então vale apenas `is_active`.
+
+## Limitações conhecidas
+
+- **Identificação do cliente:** telefone e e-mail podem ser conhecidos por terceiros, e a API não limita tentativas.
+- **Dados:** não há data real de entrega nem período das promoções, então prazos usam a previsão de entrega e promoções dependem de `is_active`. Os pedidos vão até 2026-03-22, e por isso o agente usa uma data de referência (`AGENT_TODAY`), sem horário: ele não sabe se a loja está aberta agora.
+- **Busca nas políticas:** é lexical. Em 10 perguntas novas, acertou 7 entre os 3 primeiros resultados, e depende de o modelo reformular a consulta nos demais casos. As tabelas do PDF viram uma célula por linha.
+- **Busca de produtos:** compara trechos de texto, sem sinônimos. "Kala" também traz "Kalani", e cabe ao modelo descartar o que não se aplica.
+- **Modelo:** o Haiku 5.5 comete deslizes de idioma, e as respostas variam a cada execução.
+- **Guardrails:** ficam no prompt e nas checagens das tools, sem uma camada própria.
+- **Encaminhamentos:** ficam só em um arquivo local, nada avisa a equipe, e um caso registrado não pode ser completado.
+- **Avaliação:** os cenários conferem trechos de texto, não o sentido das respostas. A última rodada completa, com 35 turnos, teve 1 falha na regra de encaminhamento. Ela foi corrigida e verificada só nos cenários de encaminhamento.
+- **Memória:** as conversas se perdem ao reiniciar.
+- **Execução:** a API não tem autenticação e deve rodar só localmente.
+
+## O que faria com mais tempo
+
+- Hospedar o agente e a API na nuvem, com autenticação e limite de tentativas.
+- Enviar um código de confirmação antes de mostrar pedidos.
+- Levar o atendimento ao WhatsApp, com uma camada de backend e fila de mensagens.
+- Enviar os encaminhamentos a uma fila ou CRM, e persistir a memória das conversas.
+- Criar avaliações do sentido das respostas, rodadas a cada mudança, e rastrear chamadas de LLM e tools.
+- Medir a troca de modelo, comparando custo e qualidade do português, e avaliar um AI Gateway com fallback.
+- Extrair tabelas do PDF com estrutura e testar busca híbrida se o manual crescer.
+- Informar o horário atual ao agente, para ele dizer se a loja está aberta.
