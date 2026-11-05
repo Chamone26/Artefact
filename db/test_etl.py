@@ -8,7 +8,8 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from db.etl import CSV_NAME, DATA_DIR, build_database, normalize_text, parse_brand, parse_payment, parse_specs
+from db.etl import CSV_NAME, DATA_DIR, build_database, parse_payment, parse_specs
+from db.utils import normalize_text
 
 
 def raw_rows(table):
@@ -21,12 +22,6 @@ class TransformTest(unittest.TestCase):
         self.assertEqual(normalize_text("Violões"), "violoes")
         self.assertEqual(normalize_text("Giannini GN-15 Aço"), "giannini gn15 aco")
         self.assertEqual(normalize_text("Gibson Les Paul Standard '50s"), "gibson les paul standard 50s")
-
-    def test_parse_brand(self):
-        self.assertEqual(parse_brand("Takamine GD20 Dreadnought Natural"), "Takamine")
-        self.assertEqual(parse_brand("Music Man Bass 1X Electric Bass"), "Music Man")
-        self.assertEqual(parse_brand("Bateria Acústica Pearl Kit 2 Studio"), "Pearl")
-        self.assertEqual(parse_brand("Teclado Sintetizador Nord Synth 2 Pro"), "Nord")
 
     def test_parse_specs_separates_string_material_from_count(self):
         acoustic = parse_specs('{"top":"Spruce","strings":"steel","electronics":"yes","color":"Natural"}')

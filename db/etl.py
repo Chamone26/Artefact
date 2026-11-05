@@ -1,6 +1,7 @@
-"""Lê os CSVs da loja, trata os dados com pandas e gera o banco SQLite usado pelo agente.
+"""
+Lê os CSVs da loja, trata os dados com pandas e gera o banco SQLite usado pelo agente.
 
-Uso, a partir da raiz do repositório: python -m db.etl
+python -m db.etl
 """
 
 import json
@@ -9,38 +10,25 @@ import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Callable, Union
 
 import pandas as pd
 
-from db.text import normalize_text
+from db.utils import DB_PATH, normalize_text
+
 
 DB_DIR = Path(__file__).parent
 DATA_DIR = DB_DIR / "raw_data"
 SCHEMA_PATH = DB_DIR / "schema.sql"
-DB_PATH = DB_DIR / "emporio.db"
-CSV_NAME = "desafio_tecnico_ai_eng - {table}.csv"
 
-# Colunas esperadas em cada CSV, na ordem de carga (tabelas referenciadas primeiro).
-SOURCE_COLUMNS = {
-    "categories": {"category_id", "name", "description"},
-    "products": {"product_id", "price_brl", "name", "category_id", "description",
-                 "stock_quantity", "status", "specs", "created_at"},
-    "customers": {"customer_id", "name", "phone", "email", "city"},
-    "orders": {"order_id", "customer_id", "order_date", "status", "total_brl", "payment_method",
-               "tracking_code", "estimated_delivery", "notes"},
-    "order_items": {"order_id", "quantity", "product_id"},
-    "promotions": {"promotion_id", "product_id", "discount_percent", "description", "is_active"},
-}
+CSV_NAME = "{table}.csv"
+
 
 NAME_FIXES = {"Giannini GN-15 Nylon Cedr Natural": "Giannini GN-15 Nylon Cedro Natural"}
-NAME_PREFIXES = ("Bateria Acústica ", "Teclado Sintetizador ")  # vêm antes da marca no nome
-MULTI_WORD_BRANDS = ("Music Man",)
 COLOR_TRANSLATIONS = {"Black": "Preto", "Red": "Vermelho", "Blue": "Azul", "Wine Red": "Vinho"}
 STRING_MATERIALS = {"nylon": "nylon", "steel": "aço"}
 ELECTRONICS = {"yes": 1, "no": 0}
 
-# Inconsistências da origem que não dá para corrigir sem inventar dado: o banco mantém o valor
-# original e o ETL apenas as reporta.
 QUALITY_CHECKS = {
     "Total do pedido difere de quantidade x preço atual": """
         SELECT o.order_id || ': total ' || o.total_brl || ', calculado ' || ROUND(SUM(i.quantity * p.price_brl), 2)
@@ -66,32 +54,40 @@ QUALITY_CHECKS = {
            OR (name LIKE '%Elétrico%' AND has_electronics = 0)""",
 }
 
+def extract(table: str) -> pd.DataFrame:
+    """Lê o CSV de uma tabela e padroniza os espaços de seus campos.
 
-def extract(table):
-    """Lê tudo como texto: os tipos são convertidos nas transformações, que falham se houver valor inválido."""
+    Os valores são mantidos como texto para que as funções de transformação
+    controlem as conversões de tipo.
+
+    Args:
+        table: Nome da tabela e do arquivo CSV correspondente em ``raw_data``.
+
+    Returns:
+        DataFrame com os dados do CSV e espaços consecutivos reduzidos.
+    """
     path = DATA_DIR / CSV_NAME.format(table=table)
+    
     df = pd.read_csv(path, dtype=str, keep_default_na=False, encoding="utf-8")
-    if set(df.columns) != SOURCE_COLUMNS[table]:
-        raise ValueError(f"{path.name}: colunas inesperadas {list(df.columns)}")
-    # Padroniza espaços e troca texto vazio por valor ausente, que vira NULL no banco.
+    
+    # Padroniza espaços; campos vazios devem virar NULL para respeitar o schema.
     df = df.apply(lambda column: column.str.replace(r"\s+", " ", regex=True).str.strip())
-    return df.mask(df == "")
+    df = df.replace("", None)
+    return df
 
 
-def parse_brand(name):
-    for prefix in NAME_PREFIXES:
-        name = name.removeprefix(prefix)
-    for brand in MULTI_WORD_BRANDS:
-        if name.startswith(brand):
-            return brand
-    return name.split()[0]
-
-
-def parse_specs(raw_specs):
-    """Separa os atributos usados em filtros; o restante continua em JSON.
+def parse_specs(raw_specs: str) -> dict[str, object]:
+    """Separa especificações em colunas filtráveis e JSON com os atributos restantes.
 
     Na origem, 'strings' guarda o material ('nylon') em violões e ukuleles, mas a quantidade ('6')
     nas demais categorias.
+
+    Args:
+        raw_specs: Objeto JSON de especificações do produto, serializado como texto.
+
+    Returns:
+        Mapeamento com ``color``, ``string_material``, ``has_electronics`` e
+        ``specs`` serializado com as especificações que não foram separadas.
     """
     specs = json.loads(raw_specs)
     color = specs.pop("color", None)
@@ -111,22 +107,51 @@ def parse_specs(raw_specs):
     return columns
 
 
-def parse_payment(raw_method):
-    """Separa 'credit_6x' em método ('credit') e parcelas (6)."""
+def parse_payment(raw_method: str) -> dict[str, Union[str, int, None]]:
+    """Separa o método de pagamento e o número de parcelas, quando informado.
+
+    Args:
+        raw_method: Método original, como ``credit_6x`` ou ``pix``.
+
+    Returns:
+        Mapeamento com ``payment_method`` e ``installments``. Métodos que não
+        correspondem ao formato ``credit_Nx`` são mantidos e recebem parcelas
+        nulas.
+    """
     match = re.fullmatch(r"credit_(\d+)x", raw_method)
     if match:
         return {"payment_method": "credit", "installments": int(match.group(1))}
     return {"payment_method": raw_method, "installments": None}
 
 
-def transform_categories(df):
+def transform_categories(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte categorias para os tipos do banco e cria o nome normalizado.
+
+    Args:
+        df: Dados brutos de categorias.
+
+    Returns:
+        DataFrame com ``category_id`` inteiro e a coluna ``name_search``.
+    """
     return df.assign(
         category_id=df["category_id"].astype(int),
         name_search=df["name"].map(normalize_text),
     )
 
 
-def transform_products(df):
+def transform_products(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte produtos e suas especificações para as colunas do banco.
+
+    Aplica a correção de nome conhecida, extrai atributos de ``specs`` e
+    calcula os campos auxiliares usados em buscas e filtros.
+
+    Args:
+        df: Dados brutos de produtos.
+
+    Returns:
+        DataFrame transformado com IDs e valores numéricos tipados, além dos
+        campos ``name_search`` e atributos extraídos.
+    """
     name = df["name"].replace(NAME_FIXES)
     specs = pd.DataFrame(df["specs"].map(parse_specs).tolist(), index=df.index)
     return df.drop(columns="specs").join(specs).assign(
@@ -134,22 +159,39 @@ def transform_products(df):
         category_id=df["category_id"].astype(int),
         name=name,
         name_search=name.map(normalize_text),
-        brand=name.map(parse_brand),
         price_brl=df["price_brl"].astype(float),
         stock_quantity=df["stock_quantity"].astype(int),
         has_electronics=specs["has_electronics"].astype("Int64"),
     )
 
 
-def transform_customers(df):
+def transform_customers(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte IDs de clientes e cria versões normalizadas de telefone e e-mail.
+
+    Args:
+        df: Dados brutos de clientes.
+
+    Returns:
+        DataFrame com ``customer_id`` inteiro, ``phone_digits`` sem pontuação
+        e e-mail convertido para minúsculas.
+    """
     return df.assign(
         customer_id=df["customer_id"].astype(int),
         phone_digits=df["phone"].str.replace(r"\D", "", regex=True),
         email=df["email"].str.casefold(),
     )
+ 
 
+def transform_orders(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte pedidos e separa o método de pagamento de suas parcelas.
 
-def transform_orders(df):
+    Args:
+        df: Dados brutos de pedidos.
+
+    Returns:
+        DataFrame com IDs e total numéricos, método de pagamento normalizado
+        e ``installments`` inteiro anulável.
+    """
     payment = pd.DataFrame(df["payment_method"].map(parse_payment).tolist(), index=df.index)
     return df.assign(
         order_id=df["order_id"].astype(int),
@@ -160,11 +202,28 @@ def transform_orders(df):
     )
 
 
-def transform_order_items(df):
+def transform_order_items(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte todas as colunas dos itens de pedido para inteiros.
+
+    Args:
+        df: Dados brutos dos itens de pedido.
+
+    Returns:
+        DataFrame com todas as colunas convertidas para o tipo inteiro.
+    """
     return df.astype(int)
 
 
-def transform_promotions(df):
+def transform_promotions(df: pd.DataFrame) -> pd.DataFrame:
+    """Converte IDs, percentual de desconto e indicador de atividade das promoções.
+
+    Args:
+        df: Dados brutos de promoções.
+
+    Returns:
+        DataFrame com IDs e ``is_active`` inteiros e ``discount_percent``
+        convertido para ponto flutuante.
+    """
     return df.astype({
         "promotion_id": int,
         "product_id": int,
@@ -173,7 +232,7 @@ def transform_promotions(df):
     })
 
 
-TRANSFORMS = {
+TRANSFORMS: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {
     "categories": transform_categories,
     "products": transform_products,
     "customers": transform_customers,
@@ -183,16 +242,39 @@ TRANSFORMS = {
 }
 
 
-def quality_report(con):
+def quality_report(con: sqlite3.Connection) -> dict[str, list[str]]:
+    """Executa as verificações de qualidade e retorna apenas as que encontraram problemas.
+
+    Args:
+        con: Conexão SQLite com as tabelas carregadas.
+
+    Returns:
+        Mapeamento entre a descrição de cada verificação e suas ocorrências;
+        verificações sem ocorrências são omitidas.
+    """
     report = {title: [row[0] for row in con.execute(query)] for title, query in QUALITY_CHECKS.items()}
     return {title: findings for title, findings in report.items() if findings}
 
 
-def build_database(db_path=DB_PATH):
-    """Gera o banco em um arquivo temporário, para uma falha não deixar um banco pela metade."""
+def build_database(db_path = DB_PATH) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """Cria o banco SQLite a partir dos CSVs e valida a qualidade dos dados.
+
+    O banco é montado em um arquivo temporário e substitui o destino somente
+    após a carga e o relatório terminarem.
+
+    Args:
+        db_path: Caminho do arquivo SQLite a gerar. Por padrão, usa ``DB_PATH``.
+
+    Returns:
+        Tupla com as contagens de linhas carregadas por tabela e o relatório
+        das verificações de qualidade.
+    """
+
     db_path = Path(db_path)
+
     tmp_path = db_path.with_suffix(".tmp")
     tmp_path.unlink(missing_ok=True)
+
     try:
         with closing(sqlite3.connect(tmp_path)) as con:
             con.execute("PRAGMA foreign_keys = ON")
@@ -210,8 +292,10 @@ def build_database(db_path=DB_PATH):
     return counts, report
 
 
-def main():
+def main() -> None:
+    """Gera o banco padrão e imprime as contagens e os avisos de qualidade."""
     counts, report = build_database()
+
     print(f"Banco gerado em {DB_PATH}")
     for table, count in counts.items():
         print(f"  {table}: {count} linhas")

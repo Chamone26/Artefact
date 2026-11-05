@@ -13,7 +13,6 @@ CREATE TABLE products (
     category_id     INTEGER NOT NULL REFERENCES categories (category_id),
     name            TEXT NOT NULL UNIQUE,
     name_search     TEXT NOT NULL,  -- sem acento, hífen e maiúsculas, para busca
-    brand           TEXT NOT NULL,
     description     TEXT NOT NULL,
     price_brl       REAL NOT NULL CHECK (price_brl > 0),
     stock_quantity  INTEGER NOT NULL CHECK (stock_quantity >= 0),
@@ -72,7 +71,6 @@ SELECT
     p.product_id,
     p.name,
     p.name_search,
-    p.brand,
     p.category_id,
     c.name AS category,
     c.name_search AS category_search,
