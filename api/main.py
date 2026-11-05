@@ -3,12 +3,24 @@
 Uso, a partir da raiz do repositório: uvicorn api.main:app --reload
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 
-from api.schemas import Category, CustomerOrdersLookup, Order, OrderLookup, Product, ProductSearch, ProductSearchResult
 from api.store import Store
+from contracts.schemas import (
+    Category,
+    CustomerOrdersLookup,
+    Order,
+    OrderLookup,
+    PolicySearch,
+    PolicySearchResult,
+    Product,
+    ProductSearch,
+    ProductSearchResult,
+)
+from rag.search import PolicyIndex
 
 app = FastAPI(title="Empório da Música: API de dados")
 
@@ -17,7 +29,14 @@ def get_store():
     return Store()
 
 
+@lru_cache
+def get_policy_index():
+    """O índice é carregado uma vez e fica em memória, pois não muda enquanto a API está no ar."""
+    return PolicyIndex.load()
+
+
 StoreDependency = Annotated[Store, Depends(get_store)]
+PolicyIndexDependency = Annotated[PolicyIndex, Depends(get_policy_index)]
 
 
 @app.get("/products")
@@ -47,3 +66,9 @@ def get_order(lookup: OrderLookup, store: StoreDependency) -> Order:
 @app.post("/orders/search")
 def list_customer_orders(lookup: CustomerOrdersLookup, store: StoreDependency) -> list[Order]:
     return store.list_customer_orders(lookup)
+
+
+# POST pelo mesmo motivo dos pedidos: a consulta pode trazer texto do cliente, que não deve ir para logs de URL.
+@app.post("/policies/search")
+def search_policies(search: PolicySearch, index: PolicyIndexDependency) -> PolicySearchResult:
+    return PolicySearchResult(sections=index.search(search.query, search.limit))

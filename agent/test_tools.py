@@ -1,5 +1,7 @@
 """Uso, a partir da raiz do repositório: python -m unittest agent.test_tools"""
 
+import subprocess
+import sys
 import unittest
 
 import httpx2
@@ -36,6 +38,16 @@ class SchemaTest(ApiTestCase):
         for name in ("get_order_status", "list_customer_orders"):
             with self.subTest(name=name):
                 self.assertNotIn("state", self.schema_of(name)["properties"])
+
+
+class DependencyTest(unittest.TestCase):
+    def test_tools_do_not_load_the_server_or_the_database(self):
+        code = (
+            "import sys, agent.tools;"
+            "forbidden = ('api', 'db', 'rag', 'pandas', 'sqlite3');"
+            "sys.exit(any(m.split('.')[0] in forbidden for m in sys.modules))"
+        )
+        self.assertEqual(subprocess.run([sys.executable, "-c", code]).returncode, 0)
 
 
 class ApiClientTest(unittest.TestCase):

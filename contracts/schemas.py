@@ -1,4 +1,4 @@
-"""Entradas e saídas das consultas. As descrições também servirão de contrato para as tools do agente."""
+"""Entradas e saídas trocadas entre agente e API. As descrições também orientam as tools do agente."""
 
 import re
 from typing import Literal
@@ -23,7 +23,6 @@ class ProductSearch(BaseModel):
 
     query: str | None = Field(None, max_length=200, description="Modelo, marca, tipo ou característica. Ex.: 'Takamine GD20'")
     category: str | None = Field(None, max_length=100, description="Categoria do produto. Ex.: 'violão', 'guitarra'")
-    brand: str | None = Field(None, max_length=100, description="Marca exata. Ex.: 'Yamaha'")
     min_price: float | None = Field(None, ge=0, description="Preço final mínimo em reais")
     max_price: float | None = Field(None, ge=0, description="Preço final máximo em reais")
     string_material: Literal["nylon", "aço"] | None = Field(None, description="Material das cordas de violões e ukuleles")
@@ -42,7 +41,6 @@ class ProductSearch(BaseModel):
 class Product(BaseModel):
     product_id: int
     name: str
-    brand: str
     category: str
     description: str
     color: str | None
@@ -93,6 +91,28 @@ class CustomerOrdersLookup(BaseModel):
         if "@" not in email:
             raise ValueError("e-mail inválido")
         return email
+
+
+class PolicySearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(
+        min_length=1,
+        max_length=300,
+        description="Assunto a procurar nas políticas, em palavras-chave. Ex.: 'prazo devolução arrependimento'",
+    )
+    limit: int = Field(3, ge=1, le=5, description="Quantidade máxima de seções")
+
+
+class PolicySection(BaseModel):
+    section: str = Field(description="Número da seção no manual da loja")
+    title: str
+    parent: str | None = Field(description="Título da seção maior da qual esta faz parte")
+    text: str
+
+
+class PolicySearchResult(BaseModel):
+    sections: list[PolicySection]
 
 
 class OrderItem(BaseModel):

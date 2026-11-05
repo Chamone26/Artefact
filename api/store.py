@@ -6,9 +6,8 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from api.schemas import Category, Order, OrderItem, Product, ProductSearchResult
-from db.etl import DB_PATH
-from db.text import normalize_text
+from contracts.schemas import Category, Order, OrderItem, Product, ProductSearchResult
+from db.utils import DB_PATH, normalize_text
 
 AVAILABILITY_ORDER = {"disponivel": 0, "em_breve": 1, "esgotado": 2, "descontinuado": 3}
 ORDER_STATUS_LABELS = {
@@ -68,16 +67,13 @@ class Store:
             rows = con.execute(f"SELECT * FROM v_products WHERE {' AND '.join(conditions)}", params).fetchall()
 
         category = normalize_text(search.category or "")
-        brand = normalize_text(search.brand or "")
         terms = normalize_text(search.query or "").split()
         products = []
         for row in rows:
             if category and category not in normalize_text(row["category"]):
                 continue
-            if brand and normalize_text(row["brand"]) != brand:
-                continue
             searchable_text = normalize_text(" ".join(filter(None, (
-                row["name"], row["brand"], row["category"], row["description"],
+                row["name"], row["category"], row["description"],
                 row["color"], row["string_material"],
             ))))
             if terms and not all(term in searchable_text for term in terms):

@@ -56,3 +56,6 @@ class StoreApiClient:
 
     def list_customer_orders(self, phone, email):
         return self._request("POST", "/orders/search", json={"phone": phone, "email": email})
+
+    def search_policies(self, query, limit=3):
+        return self._request("POST", "/policies/search", json={"query": query, "limit": limit})

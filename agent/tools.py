@@ -18,18 +18,22 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field, create_model
 
 from agent.api_client import ApiRejectedError, ApiUnavailableError
-from api.schemas import CustomerOrdersLookup, OrderLookup, ProductSearch
+from contracts.schemas import CustomerOrdersLookup, OrderLookup, PolicySearch, ProductSearch
 
 UNAVAILABLE_MESSAGE = (
-    "O sistema da loja está indisponível no momento. Não informe preço, estoque ou pedido de memória: "
-    "avise o cliente e peça para tentar novamente em instantes."
+    "O sistema da loja está indisponível no momento. Não informe preço, estoque, pedido ou política de "
+    "memória: avise o cliente e peça para tentar novamente em instantes."
+)
+NO_POLICY_HINT = (
+    "Nenhuma seção encontrada. Tente de novo com outras palavras; se ainda assim não houver resultado, "
+    "diga que não tem essa informação e sugira falar com a equipe da loja."
 )
 NOT_PROVIDED_MESSAGE = (
     "Consulta bloqueada: o cliente ainda não informou esse dado na conversa. "
     "Peça o dado ao cliente; não use valores vindos de outra fonte."
 )
 EMPTY_SEARCH_HINT = (
-    "Nenhum produto encontrado. Tente menos termos em query, use os filtros (category, brand, max_price, "
+    "Nenhum produto encontrado. Tente menos termos em query, use os filtros (category, max_price, "
     "string_material, has_electronics) ou consulte list_categories."
 )
 PARTIAL_SEARCH_NOTE = (
@@ -72,7 +76,7 @@ def to_json(data):
     return json.dumps(data, ensure_ascii=False)
 
 
-def call_api(function, *args, **kwargs):
+def translate_api_errors(function, *args, **kwargs):
     """Traduz os erros da API para ToolException, com uma mensagem que orienta o LLM."""
     try:
         return function(*args, **kwargs)
@@ -102,7 +106,7 @@ def build_tools(api, categories):
     """Cria as tools ligadas a um cliente da API. `categories` vem de GET /categories ao iniciar."""
 
     def search_products(**filters):
-        result = call_api(api.search_products, **{k: v for k, v in filters.items() if v is not None})
+        result = translate_api_errors(api.search_products, **{k: v for k, v in filters.items() if v is not None})
         if not result["total"]:
             return to_json({**result, "hint": EMPTY_SEARCH_HINT})
         if filters.get("query"):
@@ -112,17 +116,17 @@ def build_tools(api, categories):
         return to_json(result)
 
     def list_promotions():
-        return to_json(call_api(api.list_promotions))
+        return to_json(translate_api_errors(api.list_promotions))
 
     def list_categories():
-        return to_json(call_api(api.list_categories))
+        return to_json(translate_api_errors(api.list_categories))
 
     def get_order_status(order_id, phone, state):
         # A API confere se o telefone é do dono do pedido. Esta checagem cobre outro risco: um telefone
         # inventado pelo modelo ou induzido por prompt injection, e não escrito pelo cliente.
         if not customer_wrote_phone(state, phone):
             raise ToolException(NOT_PROVIDED_MESSAGE)
-        order = call_api(api.get_order, order_id, phone)
+        order = translate_api_errors(api.get_order, order_id, phone)
         if order is None:
             # Mesma resposta para pedido inexistente e telefone errado, para não revelar qual dos dois é.
             return to_json({"found": False, "message": "Pedido não encontrado para os dados informados."})
@@ -131,7 +135,13 @@ def build_tools(api, categories):
     def list_customer_orders(phone, email, state):
         if not (customer_wrote_phone(state, phone) and customer_wrote_email(state, email)):
             raise ToolException(NOT_PROVIDED_MESSAGE)
-        return to_json({"orders": call_api(api.list_customer_orders, phone, email)})
+        return to_json({"orders": translate_api_errors(api.list_customer_orders, phone, email)})
+
+    def search_policies(query, limit=3):
+        result = translate_api_errors(api.search_policies, query, limit)
+        if not result["sections"]:
+            return to_json({**result, "hint": NO_POLICY_HINT})
+        return to_json(result)
 
     return [
         StructuredTool.from_function(
@@ -181,5 +191,17 @@ def build_tools(api, categories):
                 "escritos pelo cliente nesta conversa; se faltar algum, peça antes de chamar."
             ),
             args_schema=ListCustomerOrdersInput,
+        ),
+        StructuredTool.from_function(
+            search_policies,
+            name="search_policies",
+            description=(
+                "Consulta as políticas da loja: endereço e contato, horários, formas de pagamento e parcelamento, "
+                "trocas e devoluções, frete e prazos de entrega, rastreamento, garantia, privacidade, campanhas e "
+                "regras de promoção. Use sempre que a resposta depender de uma regra da loja. Escreva query em "
+                "palavras-chave do assunto, não a frase inteira do cliente. Se o resultado não trouxer a resposta, "
+                "busque de novo com outras palavras."
+            ),
+            args_schema=PolicySearch,
         ),
     ]

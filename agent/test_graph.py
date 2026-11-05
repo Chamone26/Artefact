@@ -95,6 +95,22 @@ class ToolFlowTest(GraphTestCase):
         self.assertNotIn("note", json.loads(tool_results(self.model.received[1])[0].content))
 
 
+    def test_policy_search_reaches_the_model(self):
+        agent = self.agent_with(tool_call("search_policies", query="endereço loja"), AIMessage("Rua 14 de Maio"))
+        reply = agent.respond("s1", "onde fica a loja?")
+        self.assertEqual([call.name for call in reply.tool_calls], ["search_policies"])
+        result = json.loads(tool_results(self.model.received[1])[0].content)
+        self.assertEqual(result["sections"][0]["section"], "1.2")
+        self.assertIn("14 de Maio", result["sections"][0]["text"])
+
+    def test_policy_search_without_results_carries_a_hint(self):
+        agent = self.agent_with(tool_call("search_policies", query="xilofone quântico"), AIMessage("não sei"))
+        agent.respond("s1", "teste")
+        result = json.loads(tool_results(self.model.received[1])[0].content)
+        self.assertEqual(result["sections"], [])
+        self.assertIn("hint", result)
+
+
 class OrderAuthorizationTest(GraphTestCase):
     def test_owner_reaches_the_order_through_the_graph(self):
         agent = self.agent_with(tool_call("get_order_status", order_id=8, phone=ORDER_8_PHONE), AIMessage("Enviado"))
@@ -210,6 +226,9 @@ class ScenarioCheckTest(GraphTestCase):
         turn = Turn("preço?", uses_tool="search_products")
         reply = AgentReply("ok", [ToolCallRecord("search_products", {}, is_error=True)])
         self.assertEqual(len(check_turn(turn, reply)), 1)
+
+    def test_model_failure_is_a_problem_in_any_scenario(self):
+        self.assertEqual(check_turn(Turn("oi"), AgentReply(MODEL_ERROR_REPLY)), ["falha ao chamar o modelo"])
 
     def test_markdown_is_a_problem_in_any_scenario(self):
         self.assertEqual(check_turn(Turn("oi"), AgentReply("**olá**")), ["usou markdown"])

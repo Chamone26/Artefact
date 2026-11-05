@@ -8,9 +8,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from api.main import app, get_store
+from api.main import app, get_policy_index, get_store
 from api.store import Store
 from db.etl import build_database
+from rag.ingest import build_index
+from rag.search import PolicyIndex
 
 # Pedido 15 pertence à cliente 18; o pedido 10, ao cliente 11, cujo e-mail é compartilhado com o cliente 43.
 ORDER_15_PHONE = "67999012345"
@@ -26,7 +28,11 @@ class ApiTestCase(unittest.TestCase):
         cls.addClassCleanup(tmp_dir.cleanup)
         cls.db_path = Path(tmp_dir.name) / "test.db"
         build_database(cls.db_path)
+        sections_path = Path(tmp_dir.name) / "sections.json"
+        build_index(sections_path)
+        policy_index = PolicyIndex.load(sections_path)
         app.dependency_overrides[get_store] = lambda: Store(cls.db_path)
+        app.dependency_overrides[get_policy_index] = lambda: policy_index
         cls.addClassCleanup(app.dependency_overrides.clear)
         cls.client = TestClient(app)
 
@@ -89,7 +95,11 @@ class ProductSearchTest(ApiTestCase):
         products = self.search(category="violões", string_material="aço", has_electronics=True, limit=20)["products"]
         self.assertEqual(len(products), 7)
         self.assertTrue(all(p["string_material"] == "aço" and p["has_electronics"] for p in products))
-        self.assertEqual(self.search(brand="yamaha", category="violões")["total"], 7)
+        self.assertEqual(self.search(query="yamaha", category="violões")["total"], 7)
+
+    def test_brand_is_not_a_filter_or_a_field(self):
+        self.assertEqual(self.client.get("/products", params={"brand": "yamaha"}).status_code, 422)
+        self.assertNotIn("brand", self.search(query="yamaha")["products"][0])
 
     def test_query_matches_substrings_in_category_and_description(self):
         self.assertEqual(self.search(query="ukuleles", limit=20)["total"], 15)
@@ -186,6 +196,27 @@ class OrderAccessTest(ApiTestCase):
         self.assertEqual(self.client.post("/orders/lookup", json={"order_id": 15}).status_code, 422)
         invalid_email = {"phone": ORDER_15_PHONE, "email": "sem-arroba"}
         self.assertEqual(self.client.post("/orders/search", json=invalid_email).status_code, 422)
+
+
+class PolicySearchRouteTest(ApiTestCase):
+    def search_policies(self, **body):
+        return self.client.post("/policies/search", json=body)
+
+    def test_returns_the_relevant_section(self):
+        response = self.search_policies(query="arrependimento devolução")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["sections"][0]["section"], "4.1")
+
+    def test_respects_limit(self):
+        self.assertEqual(len(self.search_policies(query="garantia", limit=1).json()["sections"]), 1)
+
+    def test_no_match_returns_an_empty_list(self):
+        self.assertEqual(self.search_policies(query="xilofone quântico").json(), {"sections": []})
+
+    def test_rejects_invalid_input(self):
+        for body in ({}, {"query": ""}, {"query": "x", "limit": 50}, {"query": "x", "extra": 1}):
+            with self.subTest(body=body):
+                self.assertEqual(self.search_policies(**body).status_code, 422)
 
 
 class StoreTest(unittest.TestCase):
