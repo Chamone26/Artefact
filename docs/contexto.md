@@ -40,9 +40,9 @@ O funcionamento interno está em [agente.md](agente.md).
 
 ## Estado atual
 
-- **Pronto:** ETL e SQLite, API com 6 rotas, grafo do agente, 6 tools (dados e `search_policies`), ingestão e busca nas políticas, CLI, Streamlit e testes sem LLM.
-- **Parcial:** README e cenários com o modelo real. Na última rodada, com o RAG, 2 de 31 turnos foram marcados: o "No" no lugar de "Não", limitação conhecida do Haiku, e um cenário rígido demais, já ajustado.
-- **Falta:** `escalate_to_human`, conversas de exemplo, seção "Uso de Agentes de IA", que o desenvolvedor pretende escrever, e diagramas finais.
+- **Pronto:** ETL e SQLite, API com 7 rotas, grafo do agente, 7 tools (dados, `search_policies` e `escalate_to_human`), ingestão e busca nas políticas, CLI, Streamlit e testes sem LLM.
+- **Parcial:** README e cenários com o modelo real. Na última rodada, nenhum dos 35 turnos foi marcado, mas o "No" no lugar de "Não", limitação conhecida do Haiku, apareceu na rodada anterior e pode voltar.
+- **Falta:** conversas de exemplo, seção "Uso de Agentes de IA", que o desenvolvedor pretende escrever, e diagramas finais.
 
 Diagramas: `arq_revisada.excalidraw` traz a arquitetura e `arq_as_is_to_be.excalidraw`, a comparação do estado atual com a meta do MVP.
 

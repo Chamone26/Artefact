@@ -115,6 +115,24 @@ class PolicySearchResult(BaseModel):
     sections: list[PolicySection]
 
 
+class EscalationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["reclamacao", "pedido_de_atendente", "caso_nao_coberto"] = Field(
+        description="Motivo do encaminhamento à equipe"
+    )
+    summary: str = Field(min_length=1, max_length=1000, description="Resumo do problema, nas palavras do cliente")
+    phone: str = Field(max_length=30, description="Telefone para a equipe retornar o contato")
+    order_id: int | None = Field(None, gt=0, description="Número do pedido, se o caso envolver um")
+
+    _normalize_phone = field_validator("phone")(normalize_phone)
+
+
+class EscalationReceipt(BaseModel):
+    protocol: str = Field(description="Protocolo para o cliente acompanhar o atendimento")
+    response_deadline: str = Field(description="Prazo de retorno da equipe")
+
+
 class OrderItem(BaseModel):
     product_id: int
     product_name: str

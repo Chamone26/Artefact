@@ -12,7 +12,8 @@ Terminal 1: python main.py                Terminal 2: python -m agent.cli
 │ API (FastAPI)            │              │ CLI ou Streamlit                  │
 │ api/main.py              │              │  └─ Agent.respond (agent/graph.py)│
 │  ├─ Store ──► SQLite     │◄─── HTTP ────│      ├─ grafo LangGraph ──► Claude│
-│  └─ PolicyIndex ──► JSON │              │      └─ tools (agent/tools.py)    │
+│  ├─ PolicyIndex ──► JSON │              │      └─ tools (agent/tools.py)    │
+│  └─ EscalationLog ► JSONL│              │                                   │
 └──────────────────────────┘              └───────────────────────────────────┘
 ```
 
@@ -61,6 +62,7 @@ python -m agent.cli --debug
 | `db/utils.py` | `normalize_text` e `DB_PATH`, sem depender do pandas | Mudar a normalização de texto |
 | `rag/ingest.py` | Transforma o PDF em seções e define as palavras-chave | Mudar o corte das seções ou os sinônimos |
 | `rag/search.py` | Busca BM25 nas seções | Mudar a recuperação |
+| `api/escalations.py` | Registra os encaminhamentos à equipe | Enviar os casos para outro destino |
 
 ## O caminho de uma mensagem
 
@@ -145,6 +147,9 @@ Depois, adicionamos palavras-chave às seções, porque a busca lexical não ent
 ### Por que as seções 7.1, 7.2, 7.3 e 10 ficam fora do índice
 São instruções para a equipe, como tom de voz e fluxo de atendimento, e não informações para o cliente. O que importa delas está no system prompt.
 
+### Por que os encaminhamentos ficam fora do banco
+O banco é somente leitura e reconstruído pelo ETL, então uma escrita nele se perderia. `escalate_to_human` chama `POST /escalations`, que acrescenta uma linha em `api/escalations.jsonl` e devolve o protocolo. O arquivo tem dados de clientes e fica fora do repositório. Como o telefone é usado para o retorno, a tool exige que ele tenha sido escrito pelo cliente, como nas consultas de pedido.
+
 ### Por que a consulta de políticas usa POST
 A consulta pode trazer texto escrito pelo cliente, que não deve aparecer em URLs e logs de acesso, como telefone e e-mail nos pedidos.
 
@@ -192,6 +197,7 @@ Para outro modelo Claude, basta `AGENT_MODEL` no `.env`. Para outro provedor, su
 - **Qualidade das respostas:** os cenários conferem trechos de texto, não o sentido. Leia as respostas ao alterar o prompt ou o modelo.
 - **Idioma no Haiku 5.5:** ele às vezes escreve "No" no lugar de "Não" ("No, o Yamaha F310 não está em promoção"). Reforçar o prompt e aumentar o esforço não resolveram em 24 respostas de cada variante; o Sonnet 5.5 não apresentou o problema em 12. Os cenários acusam esse erro.
 - **API:** não tem autenticação e deve rodar só localmente.
+- **Encaminhamentos:** nada avisa a equipe; o registro só fica no arquivo. Cada chamada gera um protocolo novo, e não dá para completar um caso já registrado. Os cenários com o modelo real também gravam nesse arquivo.
 - **Busca nas políticas:** é lexical e não entende sinônimos fora das palavras-chave. Nas perguntas novas, falhou em "CEP", "mudei de ideia" e "Dourados". Tabelas do PDF viram uma célula por linha, sem marcação de colunas.
 - **Índice em memória:** a API o carrega uma vez. Depois de rodar `python -m rag.ingest`, reinicie a API.
 - **Data:** é fixa (`AGENT_TODAY`) e não inclui horário, então o agente não sabe se a loja está aberta.

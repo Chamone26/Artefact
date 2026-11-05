@@ -39,7 +39,7 @@ MIN_STEPS_TO_USE_TOOLS = 3
 INCOMPLETE_STOP_REASONS = {"max_tokens", "refusal"}
 
 # Dados pessoais que não podem aparecer nos registros das chamadas.
-SENSITIVE_ARGS = {"phone", "email"}
+SENSITIVE_ARGS = {"phone", "email", "summary"}
 
 STEP_LIMIT_REPLY = (
     "Essa consulta ficou mais longa do que eu esperava e não consegui concluir. "

@@ -18,7 +18,7 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field, create_model
 
 from agent.api_client import ApiRejectedError, ApiUnavailableError
-from contracts.schemas import CustomerOrdersLookup, OrderLookup, PolicySearch, ProductSearch
+from contracts.schemas import CustomerOrdersLookup, EscalationRequest, OrderLookup, PolicySearch, ProductSearch
 
 UNAVAILABLE_MESSAGE = (
     "O sistema da loja está indisponível no momento. Não informe preço, estoque, pedido ou política de "
@@ -49,6 +49,10 @@ class GetOrderStatusInput(OrderLookup):
 
 
 class ListCustomerOrdersInput(CustomerOrdersLookup):
+    state: Annotated[dict, InjectedState]
+
+
+class EscalateToHumanInput(EscalationRequest):
     state: Annotated[dict, InjectedState]
 
 
@@ -143,6 +147,15 @@ def build_tools(api, categories):
             return to_json({**result, "hint": NO_POLICY_HINT})
         return to_json(result)
 
+    def escalate_to_human(reason, summary, phone, state, order_id=None):
+        # A equipe vai ligar para este número: ele não pode ser inventado pelo modelo.
+        if not customer_wrote_phone(state, phone):
+            raise ToolException(NOT_PROVIDED_MESSAGE)
+        request = {"reason": reason, "summary": summary, "phone": phone}
+        if order_id is not None:
+            request["order_id"] = order_id
+        return to_json(translate_api_errors(api.create_escalation, **request))
+
     return [
         StructuredTool.from_function(
             search_products,
@@ -203,5 +216,16 @@ def build_tools(api, categories):
                 "busque de novo com outras palavras."
             ),
             args_schema=PolicySearch,
+        ),
+        StructuredTool.from_function(
+            escalate_to_human,
+            name="escalate_to_human",
+            description=(
+                "Registra o atendimento para a equipe da loja retornar o contato e devolve um protocolo. Use em "
+                "reclamações, quando o cliente pedir para falar com uma pessoa ou quando o caso exigir uma decisão "
+                "que as outras tools não resolvem. Exige o telefone escrito pelo cliente nesta conversa; se faltar, "
+                "peça antes de chamar. Não use para dúvidas que as outras tools respondem."
+            ),
+            args_schema=EscalateToHumanInput,
         ),
     ]

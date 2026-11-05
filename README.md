@@ -66,10 +66,11 @@ python -m unittest db.test_etl api.test_api
 | `POST /orders/lookup` | Consulta um pedido com número e telefone | `get_order_status` |
 | `POST /orders/search` | Lista os pedidos de um cliente com telefone e e-mail | `list_customer_orders` |
 | `POST /policies/search` | Busca nas políticas da loja | `search_policies` |
+| `POST /escalations` | Registra um atendimento para a equipe e devolve um protocolo | `escalate_to_human` |
 
 - **Tools específicas em vez de SQL gerado pelo LLM:** o agente só faz consultas previstas, e os parâmetros são validados pelo Pydantic e passados ao banco separados da consulta.
 - **Camadas:** `api/store.py` contém as consultas e `api/main.py` as expõe por HTTP. O agente acessa os dados só pela API, em outro processo.
-- **Somente leitura:** a conexão abre o banco com `mode=ro`.
+- **Somente leitura:** a conexão abre o banco com `mode=ro`. A única escrita da API são os encaminhamentos à equipe, em `api/escalations.jsonl`, fora do banco e do repositório. Em produção, iriam para uma fila ou um CRM.
 - **Busca:** ignora acentos e hífens, e procura cada termo como substring do nome, categoria, descrição, cor ou material. Todos os termos precisam aparecer; não há correção de erros, stemming, stopwords ou ordenação por relevância. Resultados são ordenados por disponibilidade, preço e ID.
 - **Disponibilidade:** produtos esgotados, descontinuados ou "em breve" aparecem por padrão, identificados no campo `availability`, para o agente poder explicar a situação. `available_only=true` os exclui.
 - **Pedidos:** a autorização é feita em código, não no prompt. Telefone errado e pedido inexistente recebem a mesma resposta, e a API só devolve o primeiro nome do cliente. Telefone e e-mail vão no corpo do POST para não aparecerem em URLs.

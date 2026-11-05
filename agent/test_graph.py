@@ -141,6 +141,47 @@ class OrderAuthorizationTest(GraphTestCase):
         self.assertEqual(reply.tool_calls[0].args, {"order_id": 8, "phone": "***"})
 
 
+class EscalationTest(GraphTestCase):
+    def setUp(self):
+        super().setUp()
+        self.escalations_path.unlink(missing_ok=True)
+
+    def registered(self):
+        if not self.escalations_path.exists():
+            return []
+        return [json.loads(line) for line in self.escalations_path.read_text(encoding="utf-8").splitlines()]
+
+    def escalate(self):
+        return tool_call("escalate_to_human", reason="reclamacao", summary="Veio riscado", phone=ORDER_8_PHONE, order_id=8)
+
+    def test_registers_and_returns_protocol_and_deadline(self):
+        agent = self.agent_with(self.escalate(), AIMessage("Encaminhei"))
+        agent.respond("s1", f"Meu violão veio riscado! Telefone {ORDER_8_PHONE}")
+        result = json.loads(tool_results(self.model.received[1])[0].content)
+        self.assertEqual(result["response_deadline"], "24 horas úteis")
+        entry = self.registered()[0]
+        self.assertEqual(entry["protocol"], result["protocol"])
+        self.assertEqual((entry["reason"], entry["phone"], entry["order_id"]), ("reclamacao", "67996547821", 8))
+
+    def test_phone_not_written_by_customer_registers_nothing(self):
+        agent = self.agent_with(self.escalate(), AIMessage("Qual o telefone?"))
+        reply = agent.respond("s1", "Meu violão veio riscado!")
+        self.assertTrue(reply.tool_calls[0].is_error)
+        self.assertEqual(self.registered(), [])
+
+    def test_order_is_optional(self):
+        call = tool_call("escalate_to_human", reason="pedido_de_atendente", summary="Quer falar com alguém", phone=ORDER_8_PHONE)
+        agent = self.agent_with(call, AIMessage("ok"))
+        agent.respond("s1", f"Quero falar com uma pessoa, {ORDER_8_PHONE}")
+        self.assertIsNone(self.registered()[0]["order_id"])
+
+    def test_records_hide_contact_and_summary(self):
+        agent = self.agent_with(self.escalate(), AIMessage("ok"))
+        reply = agent.respond("s1", f"Telefone {ORDER_8_PHONE}")
+        self.assertEqual(reply.tool_calls[0].args["phone"], "***")
+        self.assertEqual(reply.tool_calls[0].args["summary"], "***")
+
+
 class MemoryTest(GraphTestCase):
     def test_same_session_keeps_history(self):
         agent = self.agent_with(AIMessage("Oi!"), AIMessage("Tudo bem"))

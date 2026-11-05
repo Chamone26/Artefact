@@ -1,5 +1,6 @@
 """Uso, a partir da raiz do repositório: python -m unittest api.test_api"""
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -8,7 +9,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from api.main import app, get_policy_index, get_store
+from api.escalations import EscalationLog
+from api.main import app, get_escalation_log, get_policy_index, get_store
 from api.store import Store
 from db.etl import build_database
 from rag.ingest import build_index
@@ -217,6 +219,37 @@ class PolicySearchRouteTest(ApiTestCase):
         for body in ({}, {"query": ""}, {"query": "x", "limit": 50}, {"query": "x", "extra": 1}):
             with self.subTest(body=body):
                 self.assertEqual(self.search_policies(**body).status_code, 422)
+
+
+class EscalationRouteTest(unittest.TestCase):
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        self.path = Path(tmp_dir.name) / "escalations.jsonl"
+        log = EscalationLog(self.path)
+        app.dependency_overrides[get_escalation_log] = lambda: log
+        self.addCleanup(app.dependency_overrides.pop, get_escalation_log)
+        self.client = TestClient(app)
+        self.valid = {"reason": "reclamacao", "summary": "Veio riscado", "phone": "(67) 99654-7821"}
+
+    def test_registers_with_normalized_phone(self):
+        response = self.client.post("/escalations", json=self.valid)
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["response_deadline"], "24 horas úteis")
+        entry = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(entry["protocol"], response.json()["protocol"])
+        self.assertEqual(entry["phone"], "67996547821")
+
+    def test_each_registration_gets_its_own_protocol(self):
+        protocols = {self.client.post("/escalations", json=self.valid).json()["protocol"] for _ in range(2)}
+        self.assertEqual(len(protocols), 2)
+        self.assertEqual(len(self.path.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_rejects_invalid_input(self):
+        for change in ({"reason": "outro"}, {"summary": ""}, {"phone": "123"}, {"order_id": 0}, {"extra": 1}):
+            with self.subTest(change=change):
+                self.assertEqual(self.client.post("/escalations", json={**self.valid, **change}).status_code, 422)
+        self.assertFalse(self.path.exists())
 
 
 class StoreTest(unittest.TestCase):

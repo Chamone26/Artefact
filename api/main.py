@@ -8,10 +8,13 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 
+from api.escalations import EscalationLog
 from api.store import Store
 from contracts.schemas import (
     Category,
     CustomerOrdersLookup,
+    EscalationReceipt,
+    EscalationRequest,
     Order,
     OrderLookup,
     PolicySearch,
@@ -35,8 +38,14 @@ def get_policy_index():
     return PolicyIndex.load()
 
 
+@lru_cache
+def get_escalation_log():
+    return EscalationLog()
+
+
 StoreDependency = Annotated[Store, Depends(get_store)]
 PolicyIndexDependency = Annotated[PolicyIndex, Depends(get_policy_index)]
+EscalationLogDependency = Annotated[EscalationLog, Depends(get_escalation_log)]
 
 
 @app.get("/products")
@@ -72,3 +81,8 @@ def list_customer_orders(lookup: CustomerOrdersLookup, store: StoreDependency) -
 @app.post("/policies/search")
 def search_policies(search: PolicySearch, index: PolicyIndexDependency) -> PolicySearchResult:
     return PolicySearchResult(sections=index.search(search.query, search.limit))
+
+
+@app.post("/escalations", status_code=201)
+def create_escalation(request: EscalationRequest, log: EscalationLogDependency) -> EscalationReceipt:
+    return log.register(request)

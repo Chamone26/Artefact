@@ -59,3 +59,6 @@ class StoreApiClient:
 
     def search_policies(self, query, limit=3):
         return self._request("POST", "/policies/search", json={"query": query, "limit": limit})
+
+    def create_escalation(self, **request):
+        return self._request("POST", "/escalations", json=request)

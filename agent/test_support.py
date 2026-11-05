@@ -9,7 +9,8 @@ from langchain_core.messages import AIMessage
 
 from agent.api_client import StoreApiClient
 from agent.tools import build_tools
-from api.main import app, get_policy_index, get_store
+from api.escalations import EscalationLog
+from api.main import app, get_escalation_log, get_policy_index, get_store
 from api.store import Store
 from db.etl import build_database
 from rag.ingest import build_index
@@ -34,6 +35,9 @@ class ApiTestCase(unittest.TestCase):
         policy_index = PolicyIndex.load(sections_path)
         app.dependency_overrides[get_store] = lambda: Store(db_path)
         app.dependency_overrides[get_policy_index] = lambda: policy_index
+        cls.escalations_path = Path(tmp_dir.name) / "escalations.jsonl"
+        escalation_log = EscalationLog(cls.escalations_path)
+        app.dependency_overrides[get_escalation_log] = lambda: escalation_log
         cls.addClassCleanup(app.dependency_overrides.clear)
         cls.api = StoreApiClient(TestClient(app))
         cls.tools = build_tools(cls.api, cls.api.list_categories())
