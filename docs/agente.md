@@ -140,7 +140,7 @@ Comparamos as opções com o manual dividido em 28 seções e 29 perguntas:
 
 Só um modelo de embeddings foi testado, e as perguntas foram escritas depois de ler o manual. O resultado vale para este documento pequeno, não como regra geral.
 
-Depois, adicionamos palavras-chave às seções, porque a busca lexical não entende que "rastreio" e "rastreamento" são o mesmo assunto. Com isso, as 29 perguntas chegaram a 29 entre as 3 primeiras, mas esse número é otimista, porque as palavras foram escolhidas olhando essas perguntas. **A medida real são as 10 perguntas novas de `HELD_OUT_QUESTIONS`: 7 de 10.** Elas não devem guiar novos ajustes, senão deixam de medir. Como a tool é chamada pelo LLM, ele também pode refazer a busca com outras palavras.
+Depois, adicionamos palavras-chave às seções, porque a busca lexical não entende que "rastreio" e "rastreamento" são o mesmo assunto. Com isso, as 29 perguntas chegaram a 29 entre as 3 primeiras, mas esse número é otimista, porque as palavras foram escolhidas olhando essas perguntas. **A medida real são as 10 perguntas novas de `HELD_OUT_QUESTIONS`: 7 de 10.** Elas não devem guiar novos ajustes, senão deixam de medir. Como a tool é chamada pelo LLM, ele escreve a consulta com outras palavras: com o modelo real, "mudei de ideia" e "Dourados" foram respondidas corretamente, embora a busca direta falhasse nessas frases.
 
 ### Por que as seções 7.1, 7.2, 7.3 e 10 ficam fora do índice
 São instruções para a equipe, como tom de voz e fluxo de atendimento, e não informações para o cliente. O que importa delas está no system prompt.

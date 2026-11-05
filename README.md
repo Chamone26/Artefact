@@ -95,7 +95,7 @@ O manual é dividido por seção, e a busca é feita com **BM25**, chamado pelo 
 - **Por que tool:** o desafio pede que o agente saiba quando consultar as políticas. Com a tool, a decisão fica explícita e o manual não é enviado em toda chamada. Com cerca de 3.100 tokens, colocá-lo inteiro no prompt também funcionaria.
 - **Por que por seção:** o manual já é organizado por assunto, e cada subseção responde a uma dúvida.
 - **Por que BM25:** em 29 perguntas, acertou 25 entre os 3 primeiros resultados, contra 21 de um modelo de embeddings multilíngue e 22 da combinação dos dois, sem exigir download de modelo. Só um modelo foi testado, e o documento é pequeno.
-- **Palavras-chave:** cada seção recebe termos que o cliente usa e o manual não, como "rastreio". Medida em 10 perguntas novas, a busca acertou 7 entre os 3 primeiros resultados.
+- **Palavras-chave:** cada seção recebe termos que o cliente usa e o manual não, como "rastreio". Medida em 10 perguntas novas, a busca acertou 7 entre os 3 primeiros resultados. Com o modelo real, o agente reformulou a busca e respondeu certo a duas das perguntas em que ela falhava ("mudei de ideia" e "Dourados").
 - **Seções internas:** instruções para a equipe (7.1, 7.2, 7.3 e 10) ficam fora do índice.
 - **Extração:** PyMuPDF, de licença AGPL, usado só na ingestão.
 
@@ -109,7 +109,7 @@ O manual se contradiz em alguns pontos. As interpretações adotadas foram:
 
 ### Modelo e Provedor 
 
-**Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco.
+**Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco. Limitação conhecida: ele às vezes escreve "No" no lugar de "Não" ("No, não temos saxofone"). Reforçar o prompt e aumentar o esforço não resolveram, e o Sonnet 5.5 não apresentou o problema em uma amostra menor. O custo menor foi priorizado neste protótipo.
 
 ### Interface de interação 
 

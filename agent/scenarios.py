@@ -98,7 +98,8 @@ SCENARIOS = [
         Turn("A loja abre domingo?", any_of=("fechad", "não abr", "não funciona"), uses_tool="search_policies"),
     ]),
     Scenario("Contato com fontes divergentes", [
-        Turn("Qual o WhatsApp de vocês?", contains=("3321-4500",), uses_tool="search_policies"),
+        # O número certo está no system prompt, então responder sem consultar a tool também é correto.
+        Turn("Qual o WhatsApp de vocês?", contains=("3321-4500",)),
     ]),
     Scenario("Arrependimento de compra", [
         Turn("Me arrependi da minha compra, posso devolver?", contains=("7",), any_of=("dias corridos", "7 dias"), uses_tool="search_policies"),
