@@ -131,7 +131,10 @@ SCENARIOS = [
             "Estou muito chateado, meu pedido veio com o instrumento riscado!",
             contains=("telefone",), excludes=("protocolo",), no_tools=True,
         ),
-        Turn(f"Meu telefone é {ORDER_8_PHONE}", contains=("protocolo", "24 horas"), uses_tool="escalate_to_human"),
+        Turn(
+            f"Meu telefone é {ORDER_8_PHONE}, não tenho o número do pedido aqui",
+            contains=("protocolo", "24 horas"), uses_tool="escalate_to_human",
+        ),
     ]),
     Scenario("Pedido para falar com uma pessoa", [
         Turn(

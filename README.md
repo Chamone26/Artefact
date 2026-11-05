@@ -41,6 +41,16 @@ python -m unittest db.test_etl api.test_api agent.test_tools agent.test_graph ra
 
 O funcionamento interno está em [docs/agente.md](docs/agente.md).
 
+## Exemplos de conversa
+
+Gravadas de execuções reais, sem edição do texto, por `python -m examples.generate`. As respostas variam a cada execução, e a conversa 5 foi regravada depois de um deslize de idioma do modelo, descrito em "Modelo e Provedor":
+
+- [Consulta ao catálogo](examples/01_catalogo.md)
+- [Preço, estoque e promoção](examples/02_preco_e_promocao.md)
+- [Informações gerais da loja](examples/03_informacoes_da_loja.md)
+- [Devolução de um pedido](examples/04_devolucao_de_pedido.md): caso não trivial, que combina política, verificação do telefone e dados do pedido
+- [Fora do escopo, acessório e reclamação](examples/05_fora_do_escopo_e_reclamacao.md)
+
 ## Uso de Agentes de IA
 
 ## API de dados
@@ -110,7 +120,7 @@ O manual se contradiz em alguns pontos. As interpretações adotadas foram:
 
 ### Modelo e Provedor 
 
-**Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco. Limitação conhecida: ele às vezes escreve "No" no lugar de "Não" ("No, não temos saxofone"). Reforçar o prompt e aumentar o esforço não resolveram, e o Sonnet 5.5 não apresentou o problema em uma amostra menor. O custo menor foi priorizado neste protótipo.
+**Claude Haiku 5.5**, via API da Anthropic, configurável por `AGENT_MODEL`. Pelo preço de tabela consultado (US$ 0,10 por milhão de tokens de entrada e US$ 0,50 de saída), repetir os testes custa pouco. Limitação conhecida: ele às vezes comete deslizes de idioma, como "No" no lugar de "Não" ("No, não temos saxofone") e, mais raramente, uma expressão em inglês ("that's chato"). Reforçar o prompt e aumentar o esforço não resolveram, e o Sonnet 5.5 não apresentou o problema em uma amostra menor. O custo menor foi priorizado neste protótipo.
 
 ### Interface de interação 
 
