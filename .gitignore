@@ -5,3 +5,5 @@ __pycache__/
 # Guarda a chave de API; o modelo versionado é o .env.example
 .env
 agent.log
+# Índice gerado por: python -m rag.ingest
+rag/policy_sections.json
